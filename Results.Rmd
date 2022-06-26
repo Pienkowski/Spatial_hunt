@@ -1,0 +1,501 @@
+---
+title: "Results"
+date: '2022-06-21'
+---
+
+# set up environement 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+
+### Load packages
+library(dplyr)
+library(sp)
+library(ggplot2)
+library(rgdal)
+library(INLA)
+library(inlabru)
+library(RColorBrewer)
+library(rgeos)
+library(raster)
+library(egg)
+library(sf)
+library(usdm)
+library(ggspatial)
+library(rasterVis)
+
+# Specify experimental BRU options 
+bru_options_set(inla.mode = "experimental")
+
+# Load the data and models 
+load("trapping_data.Rda")
+load("optimal_mod.Rda")
+load("mod_4_older_fit.Rda")
+load("mod_4_younger_fit.Rda")
+load("mesh.Rda")
+
+# Create the individual objects 
+Boundary <- trapping_data$Boundary
+Trap_Hunt_spatial <- trapping_data$Trap_Hunt_spatial
+landcover <- trapping_data$landcover
+valley_ridge_dis <- trapping_data$valley_ridge_dis
+Road_dis <- trapping_data$Road_dis
+travel_time <- trapping_data$travel_time
+Sources <- trapping_data$Sources
+```
+
+
+# Methods #
+
+### Plot of spatial variables ###
+
+```{r}
+### Plot spatial variables - Figure 1 
+# Boundary, mesh, traps, and source points 
+P1 <- ggplot() +
+  gg(trapping_data$Boundary)+
+  gg(trapping_data$Trap_Hunt_spatial, color = "black", cex = 0.01) +
+  gg(trapping_data$Sources, color = "blue", cex = 1) +
+  coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank()) +
+  annotation_scale(plot_unit = "km") +
+  annotation_north_arrow(style = north_arrow_minimal, pad_y = unit(1, "cm"), pad_x = unit(-0.5, "cm"))
+
+# Land cover
+P2 <- ggplot() +
+  gg(trapping_data$Boundary)+
+  gg(trapping_data$landcover)+
+  coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(), 
+        axis.text.y=element_blank()) + 
+  guides(fill=guide_legend(title="Dense forest\ndistance\n(100m)"))
+
+# Distance to ridgeline or valley bottoms
+P3 <- ggplot() +
+  gg(trapping_data$Boundary)+
+  gg(trapping_data$valley_ridge_dis)+
+  coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(), 
+        axis.text.y=element_blank()) + 
+  guides(fill=guide_legend(title="Ridge/valley\ndistance\n(100m)"))
+
+# Distance to road
+P4 <- ggplot() +
+  gg(trapping_data$Boundary)+
+  gg(trapping_data$Road_dis)+
+  coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank())+ 
+  guides(fill=guide_legend(title="Road distance\n(1km)"))
+
+# Travel time 
+P5 <- ggplot() +
+  gg(trapping_data$Boundary)+
+  gg(trapping_data$travel_time)+
+  coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank())+ 
+  guides(fill=guide_legend(title="Travel time\n(hours)"))
+
+# Save plot - jpeg
+ggsave(
+  "Figure_1.jpeg",
+  plot = egg::ggarrange(P1, P2, P3, P4, P5,  ncol = 2, labels = c("a.", "b.", "c.", "d.", "e.")),
+  width = 184 ,
+  height =  220,
+  units = c("mm"),
+  dpi = 800
+)
+
+# Save plot - eps
+ggsave(
+  "Figure_1.eps",
+  plot = egg::ggarrange(P1, P2, P3, P4, P5,  ncol = 2, labels = c("a.", "b.", "c.", "d.", "e.")), 
+  width = 184,
+  height = 220,
+  units = c("mm"),
+  dpi = 800
+)
+
+### Plot the mesh - Figure S1
+P1_SI <- ggplot() +
+  gg(mesh) +
+  gg(trapping_data$Boundary)+
+  gg(trapping_data$Trap_Hunt_spatial, color = "black", cex = 0.01) +
+  gg(trapping_data$Sources, color = "blue", cex = 1) +
+  coord_equal(xlim = c(177.1975, 205.1002), ylim = c(9845.0620, 9872.7841)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank()) +
+  annotation_scale(plot_unit = "km") +
+  annotation_north_arrow(style = north_arrow_minimal, pad_y = unit(1, "cm"), pad_x = unit(-0.5, "cm"))
+
+# Save plot - jpeg
+ggsave(
+  "Figure_S1.jpeg",
+  plot = P1_SI,
+  width = 500,
+  height = 500,
+  units = c("mm"),
+  dpi = 800
+)
+
+# Save plot - eps
+ggsave(
+  "Figure_S1.eps",
+  plot = P1_SI, 
+  width = 500,
+  height = 500,
+  units = c("mm"),
+  dpi = 800
+)
+```
+
+### Respondents ###
+
+```{r}
+### Respondent descriptive statistics
+# Subset to year
+Phase_2005 <- subset(Trap_Hunt_spatial, 2005==Trap_Hunt_spatial$Phase)
+Phase_2010 <- subset(Trap_Hunt_spatial, 2010==Trap_Hunt_spatial$Phase)
+
+# Trap numbers
+trap_num_total <- length(unique(trapping_data$Trap_Hunt_spatial$Trap_ID))
+trap_num_2005 <- length(unique(Phase_2005$Trap_ID))
+trap_num_2010 <- length(unique(Phase_2010$Trap_ID))
+
+# Hunter numbers
+hunter_num_total <- length(unique(trapping_data$Trap_Hunt_spatial$Huntrnm))
+hunter_num_2005 <- length(unique(Phase_2005$Huntrnm))
+hunter_num_2010 <- length(unique(Phase_2010$Huntrnm))
+
+# Trap type  
+table(trapping_data$Trap_Hunt_spatial$Traptyp)
+
+# Barrage or single
+table(trapping_data$Trap_Hunt_spatial$Brrgors)
+
+### Subset to hunters
+Trap_Hunt_data <- data.frame(Trap_Hunt_spatial)
+Trap_data_hunter <- Trap_Hunt_data %>% 
+  group_by(Huntrnm) %>%
+    filter(row_number()==1)
+
+# Age
+age_mean <- round(mean(Trap_data_hunter$Age),1)
+age_sd <- round(sd(Trap_data_hunter$Age),1)
+
+```
+
+We counted `r trap_num_total` traps (`r trap_num_2005` in 2005 and `r trap_num_2010` in 2010) set by `r hunter_num_total` hunters (`r hunter_num_2005` from 2005 and `r hunter_num_2010` from 2010). Of these traps, `r table(trapping_data$Trap_Hunt_spatial$Traptyp)[1]` were 'toule', `r table(trapping_data$Trap_Hunt_spatial$Traptyp)[2]` were 'tsonde', and the remaining `r table(trapping_data$Trap_Hunt_spatial$Traptyp)[3]` were unknown or other trap types. Additionally, `r  table(trapping_data$Trap_Hunt_spatial$Brrgors)[2]` were set up as single traps and `r  table(trapping_data$Trap_Hunt_spatial$Brrgors)[1]` as 'barrage' traps (with the remaining `r  table(trapping_data$Trap_Hunt_spatial$Brrgors)[3]` classified as unknown or other). The hunters included in the sample had a mean age of `r age_mean` (standard deviation (SD) = `r age_sd`). Furthermore, `r table(Trap_data_hunter$Educatn)[1]` had primary-level education, `r table(Trap_data_hunter$Educatn)[2]` had secondary-level, and the remainder were unknown. 
+
+### Statistical results ###
+
+```{r}
+# Posterior of each fixed effect
+P1 <- plot(optimal_mod, rownames(optimal_mod$summary.fixed)[1]) +
+  xlab("Distance to dense forest (100m)") +
+  ylab("PDF")
+  
+P2 <- plot(optimal_mod, rownames(optimal_mod$summary.fixed)[2]) +
+  xlab("Ridge/valley distance (100m)") +
+  ylab("PDF")
+  
+P3 <- plot(optimal_mod, rownames(optimal_mod$summary.fixed)[3]) +
+  xlab("Travel time (hours)") +
+  ylab("PDF")
+  
+P4 <- plot(optimal_mod, rownames(optimal_mod$summary.fixed)[4]) +
+  xlab("Intercept") +
+  ylab("PDF")
+
+# SPDE range and variance 
+spde.range <- spde.posterior(optimal_mod, "mySmooth", what = "range")
+spde.logvar <- spde.posterior(optimal_mod, "mySmooth", what = "log.variance")
+P5 <- plot(spde.range) + xlab("SPDE range") + ylab("PDF")
+P6 <- plot(spde.logvar) + xlab("SPDE log variance") + ylab("PDF")
+
+# Save plot - jpeg
+ggsave(
+  "Figure_2.jpeg",
+  plot = egg::ggarrange(P1, P2, P3, P4, P5, P6,   ncol = 2, labels = c("a.", "b.", "c.", "d.", "e.", "f.")),
+  width = 184 ,
+  height =  220,
+  units = c("mm"),
+  dpi = 800
+)
+
+# Save plot - eps
+ggsave(
+  "Figure_2.eps",
+  plot = egg::ggarrange(P1, P2, P3, P4, P5, P6,  ncol = 2, labels = c("a.", "b.", "c.", "d.", "e.","f.")), 
+  width = 184,
+  height = 220,
+  units = c("mm"),
+  dpi = 800
+)
+```
+
+
+```{r}
+###### Summarise the main model results ######
+### Plot the predicted density
+# Create a empty object from the mesh
+predict_df <- pixels(mesh, mask = Boundary, nx = 913 , ny = 913 )
+
+# Make predictions from the model
+int_1 <- predict(optimal_mod, predict_df, ~ list(
+  all_pred = (dense_dis + layer + vall_rid_dis +  mySmooth + Intercept),
+  dense_dis_pred = (dense_dis),
+  layer_pred = (layer),
+  vall_rid_dis_pred = (vall_rid_dis),
+  smooth_pred = (mySmooth),
+  Intercept_pred = (Intercept)
+))
+
+### save as tiff files 
+# All variables
+all_variables <- raster(int_1$all_pred) ; writeRaster(all_variables, filename = paste0("predicted/all_variables.tif"),options=c('TFW=YES'),  overwrite=TRUE)
+
+# Distance to dense forest
+dense_forest <- raster(int_1$dense_dis_pred) ; writeRaster(dense_forest, filename = paste0("predicted/dense_forest.tif"),options=c('TFW=YES'),  overwrite=TRUE)
+
+# Travel time
+travel_time <- raster(int_1$layer_pred) ; writeRaster(travel_time, filename = paste0("predicted/travel_time.tif"),options=c('TFW=YES'),  overwrite=TRUE)
+
+# vallley distance 
+valley_dis <- raster(int_1$vall_rid_dis_pred) ; writeRaster(valley_dis, filename = paste0("predicted/valley_dis.tif"),options=c('TFW=YES'),  overwrite=TRUE)
+
+# SPDE
+SPDE_var <- raster(int_1$smooth_pred) ; writeRaster(SPDE_var, filename = paste0("predicted/SPDE_var.tif"),options=c('TFW=YES'),  overwrite=TRUE)
+
+# Summary
+quantile(int_1$all_pred$mean) # all values below -27.306317 are in the bottom quantile 
+# In arcmap, using the following in the raster calculator = Con("all_variables.tif"  <= -27.306317, 1 ,0)
+# Clip the raster by the boundary area.
+
+# Create binary variable showing areas below the 2nd quantile
+all_variables_bin <- reclassify(all_variables, cbind(quantile(int_1$all_pred$mean)[2], Inf, 0), right=FALSE)
+all_variables_bin <- reclassify(all_variables_bin, cbind(-Inf, quantile(int_1$all_pred$mean)[2], 1), right=FALSE)
+
+# As factor
+all_variables_bin_df <- as.data.frame(all_variables_bin, xy = TRUE) %>%
+  mutate(mean = factor(mean))
+
+# Save
+writeRaster(all_variables_bin, filename = paste0("predicted/all_variables_bin.tif"),options=c('TFW=YES'),  overwrite=TRUE)
+
+# Source points - communities and hunting camps
+Refu_ex <- readOGR("predicted/Refu_ex.shp")
+### Change map units from m to km 
+Refu_ex <- spTransform(Refu_ex,"+proj=utm +zone=33 +south +datum=WGS84 +units=km +no_defs")
+```
+
+```{r}
+# Plot the predicted hunting intensity
+P1 <- ggplot() +
+  gg(int_1$all_pred)+
+  coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank()) +
+  ggtitle("All variables")
+
+P2 <- ggplot() +
+  gg(int_1$dense_dis_pred)+
+  coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank()) +
+  ggtitle("Distance to dense forest (100m)")
+
+P3 <- ggplot() +
+  gg(int_1$layer_pred)+
+  coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank())  +
+  ggtitle("Travel time (hours)")
+
+P4 <- ggplot() +
+  gg(int_1$vall_rid_dis_pred)+
+  coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank()) +
+  ggtitle("Distance to valleys and ridges (100m)")
+
+P5 <- ggplot() +
+  gg(int_1$smooth_pred)+
+  coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank())+
+  ggtitle("SPDE")
+
+P6 <- ggplot() + 
+  geom_raster(data = all_variables_bin_df, aes(x = x, y = y, fill = mean)) +
+  scale_fill_manual(values = viridis::viridis(2), breaks = 0:1,
+                    labels = c("Above", "Bottom")) + coord_equal(xlim = c(183.2336, 197.6343), ylim = c(9849.702, 9867.437)) +
+  gg(Refu_ex, "grey")+
+  theme(axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.x=element_blank(),
+        axis.text.y=element_blank()) + 
+  guides(fill=guide_legend(title="Quantile")) 
+
+
+# Save plot - jpeg
+ggsave(
+  "Figure_3.jpeg",
+  plot = egg::ggarrange(P1, P2, P3, P4, P5, P6,  ncol = 2, labels = c("a.", "b.", "c.", "d.", "e.", "f.")),
+  width = 184 ,
+  height =  220,
+  units = c("mm"),
+  dpi = 800
+)
+
+# Save plot - eps
+ggsave(
+  "Figure_3.eps",
+  plot = egg::ggarrange(P1, P2, P3, P4, P5, P6, ncol = 2, labels = c("a.", "b.", "c.", "d.", "e.", "f.")), 
+  width = 184,
+  height = 220,
+  units = c("mm"),
+  dpi = 800
+)
+```
+
+
+
+```{r}
+### Look at the posterior of the SPDE
+corplot <- plot(spde.posterior(optimal_mod, "mySmooth", what = "matern.correlation"))
+covplot <- plot(spde.posterior(optimal_mod, "mySmooth", what = "matern.covariance"))
+egg::ggarrange(corplot, covplot,  ncol = 2, labels = c("a.", "b."))
+
+# Save plot - jpeg
+ggsave(
+  "Figure_S2.jpeg",
+  plot = egg::ggarrange(corplot, covplot,  ncol = 1, labels = c("a.", "b.")),
+  width = 100 ,
+  height =  120,
+  units = c("mm"),
+  dpi = 800
+)
+
+# Save plot - eps
+ggsave(
+  "Figure_S2.eps",
+  plot = egg::ggarrange(corplot, covplot,  ncol = 1, labels = c("a.", "b.")), 
+  width = 100,
+  height = 120,
+  units = c("mm"),
+  dpi = 800
+)
+
+```
+
+### Age model 
+
+
+```{r}
+# Subset to hunters
+Trap_Hunt_data <- data.frame(Trap_Hunt_spatial)
+Trap_Hunt_data <- Trap_Hunt_data_df %>% 
+  group_by(Huntrnm) %>%
+  filter(row_number()==1)
+
+# mean age 
+age_mean <- mean(Trap_Hunt_data$Age)
+
+# Split the sample into younger and older respondents, based on the median
+Trap_Hunt_spatial_older <- Trap_Hunt_spatial[Trap_Hunt_spatial$Age > age_mean ,]
+Trap_Hunt_spatial_younger <- Trap_Hunt_spatial[Trap_Hunt_spatial$Age <= age_mean,]
+
+old_traps <- nrow(Trap_Hunt_spatial_older)
+young_traps <- nrow(Trap_Hunt_spatial_younger)
+prop_old <- paste0(round( (nrow(Trap_Hunt_spatial_older)/nrow(Trap_Hunt_spatial))*100, 1),"%")
+```
+
+In total, `r old_traps` (`r prop_old`) of the traps were set by hunters in the ‘more experienced’ sub-group, with the remaining `r young_traps` traps set by those in the ‘less experienced’ group. 
+
+```{r}
+### Posterior of each fixed effect
+# Forest
+P1.a <- plot(mod_4_older_fit, rownames(mod_4_older_fit$summary.fixed)[1]) +
+  xlab("Distance to dense forest (100m)") +
+  ylab("PDF") + geom_area(fill = '#b3e2cd', alpha=0.2) 
+  
+P1.b <- plot(mod_4_younger_fit, rownames(mod_4_younger_fit$summary.fixed)[1]) +
+  xlab("Distance to dense forest (100m)") +
+  ylab("PDF") + geom_area(fill = '#fdcdac', alpha=0.2)
+
+# Valley
+P2.a <- plot(mod_4_older_fit, rownames(mod_4_older_fit$summary.fixed)[2]) +
+  xlab("Ridge/valley distance (100m)") +
+  ylab("PDF") + geom_area(fill = '#b3e2cd', alpha=0.2) 
+  
+P2.b <- plot(mod_4_younger_fit, rownames(mod_4_younger_fit$summary.fixed)[2]) +
+  xlab("Ridge/valley distance (100m)") +
+  ylab("PDF") + geom_area(fill = '#fdcdac', alpha=0.2) 
+
+# Travel
+P3.a <- plot(mod_4_older_fit, rownames(mod_4_older_fit$summary.fixed)[3]) +
+  xlab("Travel time (hours)") +
+  ylab("PDF")  + geom_area(fill = '#b3e2cd', alpha=0.2) 
+  
+P3.b <- plot(mod_4_younger_fit, rownames(mod_4_younger_fit$summary.fixed)[3]) +
+  xlab("Travel time (hours)") +
+  ylab("PDF")  + geom_area(fill = '#fdcdac', alpha=0.2) 
+
+# Intercept
+P4.a <- plot(mod_4_older_fit, rownames(mod_4_older_fit$summary.fixed)[4]) +
+  xlab("Intercept") +
+  ylab("PDF") + geom_area(fill = '#b3e2cd', alpha=0.2) 
+
+P4.b <- plot(mod_4_younger_fit, rownames(mod_4_younger_fit$summary.fixed)[4]) +
+  xlab("Intercept") +
+  ylab("PDF") + geom_area(fill = '#fdcdac', alpha=0.2) 
+
+
+# Save plot - jpeg
+ggsave(
+  "Figure_4.jpeg",
+  plot = egg::ggarrange(P1.a, P1.b, P2.a, P2.b, P3.a, P3.b, P4.a , P4.b ,  ncol = 2, labels = c("a.", "b.", "c.", "d.", "e.", "f.", "g.", "h.")),
+  width = 184 ,
+  height =  240,
+  units = c("mm"),
+  dpi = 800
+)
+
+# Save plot - eps
+ggsave(
+  "Figure_4.eps",
+  plot = egg::ggarrange(P1.a, P1.b, P2.a, P2.b, P3.a, P3.b, P4.a , P4.b ,  ncol = 2, labels = c("a.", "b.", "c.", "d.", "e.", "f.", "g.", "h.")), 
+  width = 184,
+  height = 240,
+  units = c("mm"),
+  dpi = 800
+)
+```
+
+
+
